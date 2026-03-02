@@ -26,7 +26,7 @@ async fn start_sync(sync_dir: String, api_url: String) -> Result<String, String>
 fn get_default_sync_dir() -> Result<String, String> {
     let home_dir = dirs::home_dir()
         .ok_or("Could not find home directory")?;
-    let sync_dir = home_dir.join("FrankDrive");
+    let sync_dir = home_dir.join("FrankDrive-Sync");
     Ok(sync_dir.to_string_lossy().to_string())
 }
 

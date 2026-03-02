@@ -139,7 +139,17 @@ impl SyncManager {
                     log::info!("File event: {:?}", event);
                     
                     for path in event.paths {
-                        if path.is_file() && !path.file_name().unwrap_or_default().to_string_lossy().starts_with('.') {
+                        let path_str = path.to_string_lossy();
+                        
+                        if path.is_file() 
+                            && !path_str.contains("minio-data")
+                            && !path_str.contains("postgres-data")
+                            && !path_str.contains("redis-data")
+                            && !path_str.contains(".git")
+                            && !path_str.contains("node_modules")
+                            && !path_str.contains(".DS_Store")
+                            && !path.file_name().unwrap_or_default().to_string_lossy().starts_with('.') 
+                        {
                             match event.kind {
                                 notify::EventKind::Create(_) | notify::EventKind::Modify(_) => {
                                     if let Err(e) = self.upload_file(&path).await {
