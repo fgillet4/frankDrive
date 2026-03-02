@@ -30,6 +30,26 @@ fn get_default_sync_dir() -> Result<String, String> {
     Ok(sync_dir.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn save_file_selection(sync_dir: String, ignored_files: Vec<String>) -> Result<String, String> {
+    use std::fs;
+    use std::path::PathBuf;
+    
+    let sync_path = PathBuf::from(&sync_dir);
+    if !sync_path.exists() {
+        fs::create_dir_all(&sync_path)
+            .map_err(|e| format!("Failed to create sync dir: {}", e))?;
+    }
+    
+    let ignore_file = sync_path.join(".frankdrive-ignore");
+    let content = ignored_files.join("\n");
+    
+    fs::write(&ignore_file, content)
+        .map_err(|e| format!("Failed to write ignore file: {}", e))?;
+    
+    Ok(format!("Saved selection: {} files ignored", ignored_files.len()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -44,7 +64,7 @@ pub fn run() {
       }
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![start_sync, get_default_sync_dir])
+    .invoke_handler(tauri::generate_handler![start_sync, get_default_sync_dir, save_file_selection])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

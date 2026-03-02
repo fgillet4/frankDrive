@@ -35,6 +35,24 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ files: result.rows });
   });
 
+  fastify.get('/check', async (request, reply) => {
+    const { checksum } = request.query as { checksum?: string };
+    
+    if (!checksum) {
+      return reply.code(400).send({ error: 'Checksum required' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, name, checksum FROM files WHERE checksum = $1 AND "userId" = $2',
+      [checksum, 'frank']
+    );
+
+    return reply.send({ 
+      exists: result.rows.length > 0,
+      file: result.rows[0] || null
+    });
+  });
+
   fastify.post('/upload', async (request, reply) => {
     const data = await request.file();
     
@@ -46,6 +64,20 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
     const fileSize = fileBuffer.length;
     const checksum = createHash('sha256').update(fileBuffer).digest('hex');
     const mimeType = resolveMime(data.filename, data.mimetype);
+
+    const existingFile = await pool.query(
+      'SELECT * FROM files WHERE checksum = $1 AND "userId" = $2',
+      [checksum, 'frank']
+    );
+
+    if (existingFile.rows.length > 0) {
+      return reply.send({
+        success: true,
+        duplicate: true,
+        message: 'File already exists',
+        file: existingFile.rows[0]
+      });
+    }
 
     const fileId = randomUUID();
     const objectKey = `${fileId}-${data.filename}`;
@@ -61,18 +93,6 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
       [fileId, data.filename, fileSize, mimeType, objectKey, 'frank', checksum]
     );
     return reply.send({ success: true, file: result.rows[0] });
-  });
-
-  fastify.get('/check', async (request, reply) => {
-    const { checksum } = request.query as { checksum: string };
-    if (!checksum) {
-      return reply.code(400).send({ error: 'checksum required' });
-    }
-    const result = await pool.query(
-      'SELECT id, name, checksum FROM files WHERE checksum = $1',
-      [checksum]
-    );
-    return reply.send({ exists: result.rows.length > 0, file: result.rows[0] || null });
   });
 
   fastify.get('/:id', async (request, reply) => {

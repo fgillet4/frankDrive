@@ -1,11 +1,13 @@
 use notify::{Watcher, RecursiveMode, RecommendedWatcher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
 use tokio::fs;
 use walkdir::WalkDir;
 use reqwest::Client;
 use serde::{Deserialize, Deserializer, Serialize};
+use sha2::{Sha256, Digest};
 
 fn deserialize_string_to_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
 where
@@ -31,6 +33,7 @@ pub struct FileMetadata {
     pub created_at: String,
     #[serde(rename = "updatedAt")]
     pub updated_at: String,
+    pub checksum: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +55,34 @@ impl SyncManager {
             client: Client::new(),
         }
     }
+    
+    async fn calculate_checksum(&self, file_path: &Path) -> Result<String, String> {
+        let bytes = fs::read(file_path).await
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let result = hasher.finalize();
+        Ok(format!("{:x}", result))
+    }
+    
+    async fn file_exists_on_server(&self, checksum: &str) -> Result<bool, String> {
+        let url = format!("{}/api/files/check?checksum={}", self.api_url, checksum);
+        let response = self.client.get(&url).send().await
+            .map_err(|e| format!("Request failed: {}", e))?;
+        
+        if !response.status().is_success() {
+            return Ok(false);
+        }
+        
+        #[derive(Deserialize)]
+        struct CheckResponse {
+            exists: bool,
+        }
+        
+        let check_response: CheckResponse = response.json().await
+            .map_err(|e| format!("Failed to parse response: {}", e))?;
+        Ok(check_response.exists)
+    }
 
     pub async fn initialize_sync_dir(&self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.sync_dir.exists() {
@@ -71,11 +102,47 @@ impl SyncManager {
 
         let files_response: FilesResponse = response.json().await?;
         
+        log::info!("Found {} files on server", files_response.files.len());
+        
         for file in files_response.files {
-            self.download_file(&file).await?;
+            let file_path = self.sync_dir.join(&file.name);
+            
+            if self.should_sync_file(&file) {
+                self.download_file(&file).await?;
+            } else {
+                if file_path.exists() {
+                    fs::remove_file(&file_path).await?;
+                    log::info!("Removed unsynced file from local: {}", file.name);
+                } else {
+                    log::info!("Skipping file (selective sync): {}", file.name);
+                }
+            }
         }
 
         Ok(())
+    }
+    
+    fn should_sync_file(&self, file: &FileMetadata) -> bool {
+        let ignore_path = self.sync_dir.join(".frankdrive-ignore");
+        
+        if !ignore_path.exists() {
+            return true;
+        }
+        
+        if let Ok(ignore_content) = std::fs::read_to_string(&ignore_path) {
+            for line in ignore_content.lines() {
+                let pattern = line.trim();
+                if pattern.is_empty() || pattern.starts_with('#') {
+                    continue;
+                }
+                
+                if file.name.contains(pattern) || file.name.ends_with(pattern) {
+                    return false;
+                }
+            }
+        }
+        
+        true
     }
 
     async fn download_file(&self, file: &FileMetadata) -> Result<(), Box<dyn std::error::Error>> {
@@ -133,11 +200,14 @@ impl SyncManager {
 
         log::info!("Watching directory: {:?}", self.sync_dir);
 
+        let mut pending_files: HashMap<PathBuf, Instant> = HashMap::new();
+        let mut uploaded_checksums: HashMap<String, Instant> = HashMap::new();
+        let debounce_duration = Duration::from_millis(500);
+        let checksum_cache_duration = Duration::from_secs(3);
+
         for event in rx {
             match event {
                 Ok(event) => {
-                    log::info!("File event: {:?}", event);
-                    
                     for path in event.paths {
                         let path_str = path.to_string_lossy();
                         
@@ -152,8 +222,47 @@ impl SyncManager {
                         {
                             match event.kind {
                                 notify::EventKind::Create(_) | notify::EventKind::Modify(_) => {
-                                    if let Err(e) = self.upload_file(&path).await {
-                                        log::error!("Failed to upload file: {}", e);
+                                    let now = Instant::now();
+                                    
+                                    if let Some(last_time) = pending_files.get(&path) {
+                                        if now.duration_since(*last_time) < debounce_duration {
+                                            log::info!("Debouncing file event: {:?}", path);
+                                            continue;
+                                        }
+                                    }
+                                    
+                                    pending_files.insert(path.clone(), now);
+                                    
+                                    match self.calculate_checksum(&path).await {
+                                        Ok(checksum) => {
+                                            if let Some(last_upload) = uploaded_checksums.get(&checksum) {
+                                                if now.duration_since(*last_upload) < checksum_cache_duration {
+                                                    log::info!("File with checksum {} was just uploaded, skipping: {:?}", checksum, path);
+                                                    continue;
+                                                }
+                                            }
+                                            
+                                            match self.file_exists_on_server(&checksum).await {
+                                                Ok(exists) => {
+                                                    if exists {
+                                                        log::info!("File already on server (checksum match), skipping: {:?}", path);
+                                                    } else {
+                                                        if let Err(e) = self.upload_file(&path).await {
+                                                            log::error!("Failed to upload file: {}", e);
+                                                        } else {
+                                                            log::info!("Uploaded new file: {:?}", path);
+                                                            uploaded_checksums.insert(checksum.clone(), now);
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    log::error!("Failed to check if file exists: {}", e);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            log::error!("Failed to calculate checksum: {}", e);
+                                        }
                                     }
                                 }
                                 _ => {}
