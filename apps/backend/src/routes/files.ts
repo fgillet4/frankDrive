@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { pipeline } from 'stream/promises';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { storageService } from '../services/storage.js';
 import pg from 'pg';
 
@@ -15,6 +15,24 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send({ files: result.rows });
   });
 
+  fastify.get('/check', async (request, reply) => {
+    const { checksum } = request.query as { checksum?: string };
+    
+    if (!checksum) {
+      return reply.code(400).send({ error: 'Checksum required' });
+    }
+
+    const result = await pool.query(
+      'SELECT id, name, checksum FROM files WHERE checksum = $1 AND "userId" = $2',
+      [checksum, 'frank']
+    );
+
+    return reply.send({ 
+      exists: result.rows.length > 0,
+      file: result.rows[0] || null
+    });
+  });
+
   fastify.post('/upload', async (request, reply) => {
     const data = await request.file();
     
@@ -22,11 +40,27 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(400).send({ error: 'No file provided' });
     }
 
-    const fileId = randomUUID();
-    const objectKey = `${fileId}-${data.filename}`;
-    
     const fileBuffer = await data.toBuffer();
     const fileSize = fileBuffer.length;
+    
+    const checksum = createHash('sha256').update(fileBuffer).digest('hex');
+
+    const existingFile = await pool.query(
+      'SELECT * FROM files WHERE checksum = $1 AND "userId" = $2',
+      [checksum, 'frank']
+    );
+
+    if (existingFile.rows.length > 0) {
+      return reply.send({ 
+        success: true,
+        duplicate: true,
+        message: 'File already exists',
+        file: existingFile.rows[0]
+      });
+    }
+
+    const fileId = randomUUID();
+    const objectKey = `${fileId}-${data.filename}`;
     
     await storageService.uploadFile(
       objectKey,
@@ -39,10 +73,10 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
     );
 
     const result = await pool.query(
-      `INSERT INTO files (id, name, size, "mimeType", "objectKey", "userId", "createdAt", "updatedAt") 
-       VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) 
+      `INSERT INTO files (id, name, size, "mimeType", "objectKey", "userId", checksum, "createdAt", "updatedAt") 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW()) 
        RETURNING *`,
-      [fileId, data.filename, fileSize, data.mimetype, objectKey, 'frank']
+      [fileId, data.filename, fileSize, data.mimetype, objectKey, 'frank', checksum]
     );
 
     return reply.send({ 

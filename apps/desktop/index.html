@@ -25,15 +25,31 @@
             background: white;
             border-radius: 12px;
             padding: 40px;
-            max-width: 500px;
+            max-width: 600px;
             width: 100%;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .screen {
+            display: none;
+        }
+        
+        .screen.active {
+            display: block;
         }
         
         h1 {
             color: #333;
             margin-bottom: 10px;
             font-size: 28px;
+        }
+        
+        h2 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
         }
         
         p {
@@ -53,7 +69,7 @@
             margin-bottom: 8px;
         }
         
-        input {
+        input[type="text"], input[type="url"] {
             width: 100%;
             padding: 12px;
             border: 2px solid #e0e0e0;
@@ -91,6 +107,11 @@
         button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
+        }
+        
+        button.secondary {
+            background: #6c757d;
+            margin-bottom: 10px;
         }
         
         .status {
@@ -133,6 +154,76 @@
             font-weight: bold;
             margin-bottom: 10px;
         }
+        
+        .file-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .file-item {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: background 0.2s;
+        }
+        
+        .file-item:hover {
+            background: #f8f9fa;
+        }
+        
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        
+        .file-item input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+        
+        .file-info {
+            flex: 1;
+        }
+        
+        .file-name {
+            font-weight: 500;
+            color: #333;
+            margin-bottom: 4px;
+        }
+        
+        .file-size {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .select-all-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .select-all-controls button {
+            flex: 1;
+            padding: 8px;
+            font-size: 14px;
+        }
+        
+        .file-count {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
@@ -141,36 +232,89 @@
             <div class="logo-icon">F</div>
         </div>
         
-        <h1>FrankDrive Desktop</h1>
-        <p>Sync your files automatically between your computer and the cloud.</p>
-        
-        <div class="input-group">
-            <label for="syncDir">Sync Folder</label>
-            <input type="text" id="syncDir" placeholder="/Users/you/FrankDrive" readonly>
+        <!-- Screen 1: Setup -->
+        <div id="setupScreen" class="screen active">
+            <h1>FrankDrive Desktop</h1>
+            <p>Sync your files automatically between your computer and the cloud.</p>
+            
+            <div class="input-group">
+                <label for="syncDir">Sync Folder</label>
+                <input type="text" id="syncDir" placeholder="/Users/you/FrankDrive" readonly>
+            </div>
+            
+            <div class="input-group">
+                <label for="apiUrl">API URL</label>
+                <input type="url" id="apiUrl" value="http://192.168.1.70:4000" required>
+            </div>
+            
+            <button id="nextBtn">Next: Select Files</button>
+            
+            <div id="setupStatus" class="status"></div>
         </div>
         
-        <div class="input-group">
-            <label for="apiUrl">API URL</label>
-            <input type="text" id="apiUrl" value="http://localhost:4000">
+        <!-- Screen 2: File Selection -->
+        <div id="fileSelectionScreen" class="screen">
+            <h2>Select Files to Sync</h2>
+            <p>Choose which files to download to your computer. Unselected files stay in the cloud only.</p>
+            
+            <div class="file-count" id="fileCount">Loading files...</div>
+            
+            <div class="input-group">
+                <input type="text" id="searchInput" placeholder="Search files...">
+            </div>
+            
+            <div class="select-all-controls">
+                <button class="secondary" id="selectAllBtn">Select All</button>
+                <button class="secondary" id="deselectAllBtn">Deselect All</button>
+                <button class="secondary" id="selectByPattern">Deselect by pattern...</button>
+                <button class="secondary" id="refreshBtn">↻ Refresh</button>
+            </div>
+            
+            <div class="file-list" id="fileList">
+                <div class="loading">Fetching files from server...</div>
+            </div>
+            
+            <button id="startSyncBtn">Start Syncing</button>
+            <button class="secondary" id="backBtn">Back</button>
+            <button class="secondary" id="stopSyncBtn" style="display: none;">Stop Syncing & Restart</button>
+            
+            <div id="syncStatus" class="status"></div>
         </div>
-        
-        <button id="startBtn">Start Syncing</button>
-        
-        <div id="status" class="status"></div>
     </div>
 
     <script type="module">
         import { invoke } from '@tauri-apps/api/core';
         
+        let apiUrl = '';
+        let syncDir = '';
+        let allFiles = [];
+        let selectedFileIds = new Set();
+        let searchTerm = '';
+        
+        // DOM elements
+        const setupScreen = document.getElementById('setupScreen');
+        const fileSelectionScreen = document.getElementById('fileSelectionScreen');
         const syncDirInput = document.getElementById('syncDir');
         const apiUrlInput = document.getElementById('apiUrl');
-        const startBtn = document.getElementById('startBtn');
-        const statusDiv = document.getElementById('status');
+        const nextBtn = document.getElementById('nextBtn');
+        const backBtn = document.getElementById('backBtn');
+        const selectAllBtn = document.getElementById('selectAllBtn');
+        const deselectAllBtn = document.getElementById('deselectAllBtn');
+        const selectByPattern = document.getElementById('selectByPattern');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const stopSyncBtn = document.getElementById('stopSyncBtn');
+        const searchInput = document.getElementById('searchInput');
+        const startSyncBtn = document.getElementById('startSyncBtn');
+        const fileList = document.getElementById('fileList');
+        const fileCount = document.getElementById('fileCount');
+        const setupStatus = document.getElementById('setupStatus');
+        const syncStatus = document.getElementById('syncStatus');
         
         async function loadDefaultDir() {
             try {
                 const defaultDir = await invoke('get_default_sync_dir');
                 syncDirInput.value = defaultDir;
+                syncDir = defaultDir;
             } catch (error) {
                 console.error('Failed to get default sync dir:', error);
             }
@@ -178,35 +322,231 @@
         
         loadDefaultDir();
         
-        startBtn.addEventListener('click', async () => {
-            const syncDir = syncDirInput.value;
-            const apiUrl = apiUrlInput.value;
+        // Next button - fetch files from server
+        nextBtn.addEventListener('click', async () => {
+            apiUrl = apiUrlInput.value.trim();
+            syncDir = syncDirInput.value.trim();
             
-            if (!syncDir || !apiUrl) {
-                showStatus('Please fill in all fields', 'error');
+            if (!apiUrl) {
+                showStatus(setupStatus, 'Please enter API URL', 'error');
                 return;
             }
             
-            startBtn.disabled = true;
-            startBtn.textContent = 'Starting...';
+            nextBtn.disabled = true;
+            nextBtn.textContent = 'Fetching files...';
             
             try {
+                const response = await fetch(`${apiUrl}/api/files`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch files: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                allFiles = data.files || [];
+                
+                // Select all by default
+                selectedFileIds = new Set(allFiles.map(f => f.id));
+                
+                renderFileList();
+                showScreen('fileSelection');
+                nextBtn.disabled = false;
+                nextBtn.textContent = 'Next: Select Files';
+            } catch (error) {
+                showStatus(setupStatus, `Error: ${error.message}`, 'error');
+                nextBtn.disabled = false;
+                nextBtn.textContent = 'Next: Select Files';
+            }
+        });
+        
+        // Back button
+        backBtn.addEventListener('click', () => {
+            showScreen('setup');
+        });
+        
+        // Select/Deselect all
+        selectAllBtn.addEventListener('click', () => {
+            selectedFileIds = new Set(allFiles.map(f => f.id));
+            renderFileList();
+        });
+        
+        deselectAllBtn.addEventListener('click', () => {
+            selectedFileIds.clear();
+            renderFileList();
+        });
+        
+        // Search filter
+        searchInput.addEventListener('input', (e) => {
+            searchTerm = e.target.value.toLowerCase();
+            renderFileList();
+        });
+        
+        // Select by pattern
+        selectByPattern.addEventListener('click', () => {
+            const pattern = prompt('Enter pattern to deselect (e.g., Screenshot, .png, .pdf):');
+            if (!pattern) return;
+            
+            const patternLower = pattern.toLowerCase();
+            allFiles.forEach(file => {
+                if (file.name.toLowerCase().includes(patternLower)) {
+                    selectedFileIds.delete(file.id);
+                }
+            });
+            renderFileList();
+        });
+        
+        // Refresh file list
+        refreshBtn.addEventListener('click', async () => {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'Refreshing...';
+            
+            try {
+                const response = await fetch(`${apiUrl}/api/files`);
+                if (!response.ok) {
+                    throw new Error(`Failed to fetch files: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                allFiles = data.files || [];
+                
+                selectedFileIds = new Set(allFiles.map(f => f.id));
+                
+                renderFileList();
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '↻ Refresh';
+            } catch (error) {
+                alert(`Error refreshing: ${error.message}`);
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '↻ Refresh';
+            }
+        });
+        
+        // Start sync with selected files
+        startSyncBtn.addEventListener('click', async () => {
+            if (selectedFileIds.size === 0) {
+                showStatus(syncStatus, 'Please select at least one file', 'error');
+                return;
+            }
+            
+            startSyncBtn.disabled = true;
+            startSyncBtn.textContent = 'Starting sync...';
+            
+            try {
+                // Save selected files to ignore file
+                const unselectedFiles = allFiles
+                    .filter(f => !selectedFileIds.has(f.id))
+                    .map(f => f.name);
+                
+                await invoke('save_file_selection', {
+                    syncDir,
+                    ignoredFiles: unselectedFiles
+                });
+                
+                // Start sync
                 const result = await invoke('start_sync', { 
                     syncDir, 
                     apiUrl 
                 });
-                showStatus(result, 'success');
-                startBtn.textContent = 'Syncing...';
+                
+                showStatus(syncStatus, result + ' - Click "Stop Syncing" to change file selection', 'success');
+                startSyncBtn.style.display = 'none';
+                backBtn.style.display = 'none';
+                stopSyncBtn.style.display = 'block';
             } catch (error) {
-                showStatus('Error: ' + error, 'error');
-                startBtn.disabled = false;
-                startBtn.textContent = 'Start Syncing';
+                showStatus(syncStatus, `Error: ${error}`, 'error');
+                startSyncBtn.disabled = false;
+                startSyncBtn.textContent = 'Start Syncing';
             }
         });
         
-        function showStatus(message, type) {
-            statusDiv.textContent = message;
-            statusDiv.className = 'status ' + type;
+        stopSyncBtn.addEventListener('click', () => {
+            location.reload();
+        });
+        
+        function renderFileList() {
+            if (allFiles.length === 0) {
+                fileList.innerHTML = '<div class="loading">No files found</div>';
+                fileCount.textContent = 'No files on server';
+                return;
+            }
+            
+            const filteredFiles = allFiles.filter(file => 
+                file.name.toLowerCase().includes(searchTerm)
+            );
+            
+            if (filteredFiles.length === 0) {
+                fileList.innerHTML = '<div class="loading">No files match search</div>';
+                fileCount.textContent = `0 of ${allFiles.length} files shown`;
+                return;
+            }
+            
+            const selectedCount = Array.from(selectedFileIds).filter(id => 
+                filteredFiles.some(f => f.id === id)
+            ).length;
+            
+            fileCount.textContent = `${selectedFileIds.size} of ${allFiles.length} files selected (${formatTotalSize()})${searchTerm ? ` - showing ${filteredFiles.length}` : ''}`;
+            
+            fileList.innerHTML = filteredFiles.map(file => {
+                const isSelected = selectedFileIds.has(file.id);
+                return `
+                    <div class="file-item">
+                        <input 
+                            type="checkbox" 
+                            ${isSelected ? 'checked' : ''}
+                            onchange="toggleFile('${file.id}')"
+                        >
+                        <div class="file-info">
+                            <div class="file-name">${escapeHtml(file.name)}</div>
+                            <div class="file-size">${formatBytes(parseInt(file.size))}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        window.toggleFile = (fileId) => {
+            if (selectedFileIds.has(fileId)) {
+                selectedFileIds.delete(fileId);
+            } else {
+                selectedFileIds.add(fileId);
+            }
+            renderFileList();
+        };
+        
+        function formatTotalSize() {
+            const totalBytes = allFiles
+                .filter(f => selectedFileIds.has(f.id))
+                .reduce((sum, f) => sum + parseInt(f.size), 0);
+            return formatBytes(totalBytes);
+        }
+        
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showScreen(screen) {
+            setupScreen.classList.remove('active');
+            fileSelectionScreen.classList.remove('active');
+            
+            if (screen === 'setup') {
+                setupScreen.classList.add('active');
+            } else if (screen === 'fileSelection') {
+                fileSelectionScreen.classList.add('active');
+            }
+        }
+        
+        function showStatus(element, message, type) {
+            element.textContent = message;
+            element.className = 'status ' + type;
         }
     </script>
 </body>
