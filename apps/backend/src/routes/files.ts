@@ -90,4 +90,24 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
     const url = await storageService.getFileUrl(result.rows[0].objectKey);
     return reply.redirect(url);
   });
+
+  fastify.patch('/:id', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const { name } = request.body as { name: string };
+    
+    if (!name) {
+      return reply.code(400).send({ error: 'Name is required' });
+    }
+
+    const result = await pool.query(
+      'UPDATE files SET name = $1, \"updatedAt\" = NOW() WHERE id = $2 RETURNING *',
+      [name, id]
+    );
+
+    if (result.rows.length === 0) {
+      return reply.code(404).send({ error: 'File not found' });
+    }
+
+    return reply.send({ file: result.rows[0] });
+  });
 };

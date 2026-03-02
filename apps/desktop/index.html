@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrankDrive Desktop</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        
+        p {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #333;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <div class="logo-icon">F</div>
+        </div>
+        
+        <h1>FrankDrive Desktop</h1>
+        <p>Sync your files automatically between your computer and the cloud.</p>
+        
+        <div class="input-group">
+            <label for="syncDir">Sync Folder</label>
+            <input type="text" id="syncDir" placeholder="/Users/you/FrankDrive" readonly>
+        </div>
+        
+        <div class="input-group">
+            <label for="apiUrl">API URL</label>
+            <input type="text" id="apiUrl" value="http://localhost:4000">
+        </div>
+        
+        <button id="startBtn">Start Syncing</button>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <script type="module">
+        import { invoke } from '@tauri-apps/api/core';
+        
+        const syncDirInput = document.getElementById('syncDir');
+        const apiUrlInput = document.getElementById('apiUrl');
+        const startBtn = document.getElementById('startBtn');
+        const statusDiv = document.getElementById('status');
+        
+        async function loadDefaultDir() {
+            try {
+                const defaultDir = await invoke('get_default_sync_dir');
+                syncDirInput.value = defaultDir;
+            } catch (error) {
+                console.error('Failed to get default sync dir:', error);
+            }
+        }
+        
+        loadDefaultDir();
+        
+        startBtn.addEventListener('click', async () => {
+            const syncDir = syncDirInput.value;
+            const apiUrl = apiUrlInput.value;
+            
+            if (!syncDir || !apiUrl) {
+                showStatus('Please fill in all fields', 'error');
+                return;
+            }
+            
+            startBtn.disabled = true;
+            startBtn.textContent = 'Starting...';
+            
+            try {
+                const result = await invoke('start_sync', { 
+                    syncDir, 
+                    apiUrl 
+                });
+                showStatus(result, 'success');
+                startBtn.textContent = 'Syncing...';
+            } catch (error) {
+                showStatus('Error: ' + error, 'error');
+                startBtn.disabled = false;
+                startBtn.textContent = 'Start Syncing';
+            }
+        });
+        
+        function showStatus(message, type) {
+            statusDiv.textContent = message;
+            statusDiv.className = 'status ' + type;
+        }
+    </script>
+</body>
+</html>

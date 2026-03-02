@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { FileUploadZone } from '@/components/file-upload-zone'
 import { FileGrid } from '@/components/file-grid'
-import { uploadFile, listFiles, deleteFile } from '@/lib/api'
+import { uploadFile, listFiles, deleteFile, renameFile } from '@/lib/api'
 
 export default function DrivePage() {
   const [files, setFiles] = useState<any[]>([])
@@ -45,6 +45,16 @@ export default function DrivePage() {
     } catch (error) {
       console.error('Delete failed:', error)
       alert('Delete failed. Please try again.')
+    }
+  }, [])
+
+  const handleRename = useCallback(async (id: string, newName: string) => {
+    try {
+      await renameFile(id, newName)
+      await loadFiles()
+    } catch (error) {
+      console.error('Rename failed:', error)
+      alert('Rename failed. Please try again.')
     }
   }, [])
 
@@ -129,7 +139,7 @@ export default function DrivePage() {
           )}
 
           {files.length > 0 && (
-            <FileGrid files={files} viewMode={viewMode} onDelete={handleDelete} />
+            <FileGrid files={files} viewMode={viewMode} onDelete={handleDelete} onRename={handleRename} />
           )}
         </div>
       </main>

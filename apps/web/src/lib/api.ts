@@ -41,3 +41,19 @@ export async function deleteFile(id: string) {
 export function getDownloadUrl(id: string) {
   return `${API_URL}/api/files/${id}/download`
 }
+
+export async function renameFile(id: string, name: string) {
+  const response = await fetch(`${API_URL}/api/files/${id}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to rename file')
+  }
+
+  return response.json()
+}
