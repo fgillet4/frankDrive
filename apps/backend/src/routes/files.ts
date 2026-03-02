@@ -42,7 +42,7 @@ export const filesRoutes: FastifyPluginAsync = async (fastify) => {
       `INSERT INTO files (id, name, size, "mimeType", "objectKey", "userId", "createdAt", "updatedAt") 
        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) 
        RETURNING *`,
-      [fileId, data.filename, fileSize, data.mimetype, objectKey, 'demo-user']
+      [fileId, data.filename, fileSize, data.mimetype, objectKey, 'frank']
     );
 
     return reply.send({ 

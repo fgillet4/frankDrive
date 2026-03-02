@@ -14,7 +14,7 @@ const fastify = Fastify({
 });
 
 await fastify.register(cors, {
-  origin: config.frontendUrl,
+  origin: true,
   credentials: true,
 });
 
