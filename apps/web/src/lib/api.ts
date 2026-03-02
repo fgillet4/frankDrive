@@ -42,6 +42,10 @@ export function getDownloadUrl(id: string) {
   return `${API_URL}/api/files/${id}/download`
 }
 
+export function getPreviewUrl(id: string) {
+  return `${API_URL}/api/files/${id}/preview`
+}
+
 export async function renameFile(id: string, name: string) {
   const response = await fetch(`${API_URL}/api/files/${id}`, {
     method: 'PATCH',
